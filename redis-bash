@@ -1,0 +1,237 @@
+#!/bin/bash
+# https://github.com/coderofsalvation/redis-bash
+SELF_PATH="$(dirname "$(readlink -f "$0")" )"
+TMPFILE="/tmp/.$(basename $0).$(whoami)"
+cd $SELF_PATH
+
+_usage(){
+  usage="Usage: $0 <listen|send> [REDISCMD] [topic] [message]
+
+  options:
+    -h Host - Defaults localhost.
+    -p Port - Defaults 6379.
+    -n DB - Select the database DB.
+    -r N - Repeat command N times.
+    -c CHANNELS - commaseperated list of channels to listen to
+    -a PASSWORD - Authentication password
+    -i INTERVAL - Interval between commands
+    -v verbose - verbose level (1=more, 2=mostest, 3=mosdef, handy for debugging)
+
+  NOTE: the 'hook' directory contains all channels which are being listened to, scripts in 
+        these directory will automatically be triggered.
+
+  Examples: 
+      $0 listen -h localhost -p 6379 
+      $0 listen -h foo.com   -p 6379 -a mypassword           
+      $0 send   -h foo.com   -p 6379 -a mypassword PUBLISH foo/bar 'this is a message'         
+      $0 send   -h foo.com   -p 6379 -a mypassword -v 1 PUBLISH foo/bar 'this is a message'         
+      $0 send   -h foo.com   -p 6379 -a mypassword SET     \"Foo Users\" 3
+  ";
+  echo "$usage"
+}
+
+[[ ! -n "$2" ]] && _usage && exit 1
+
+# initialize variables
+REDISHOST="localhost"
+REDISPORT="6379"
+REPEAT=1
+DELAY=0
+OPTIONS=0
+ACTION="$1"
+VERBOSE=0
+CHANNELS=()
+LISTENERS=()
+shift
+while getopts ":h:n:p:r:a:i:v:" opt
+do
+    case ${opt} in
+        h) REDISHOST=${OPTARG};((OPTIONS+=2));;
+        c) CHANNELS=${OPTARG};((OPTIONS+=2));;
+        n) REDISDB=${OPTARG};((OPTIONS+=2));;
+        p) REDISPORT=${OPTARG};((OPTIONS+=2));;
+        r) REPEAT=${OPTARG};((OPTIONS+=2));;
+        a) AUTH=${OPTARG};((OPTIONS+=2));;
+        i) DELAY=${OPTARG};((OPTIONS+=2));;
+        v) VERBOSE=${OPTARG};((OPTIONS+=2));;
+    esac
+done
+for((i=0;i<OPTIONS;i++)); do shift; done
+REDISCMD="$1"; shift; 
+#echo "TOPIC=$TOPIC MESSAGE=$MESSAGE REDISHOST=$REDISHOST REDISDB=$REDISDB REDISPORT=$REDISPORT REPEAT=$REPEAT AUTH=$AUTH DELAY=$DELAY"
+#
+
+declare -A EVENTLISTENERS
+
+throw(){
+  EVENT=$1; shift; for listener in "${EVENTLISTENERS[$EVENT]}"; do eval "$listener \"$@\""; done
+}
+
+addListener(){
+  if ! test "${EVENTLISTENERS['$1']+isset}"; then EVENTLISTENERS["$1"]=""; fi
+  EVENTLISTENERS["$1"]+="$2 " # we can get away with this since functionnames never contain spaces
+}
+
+# convert exitcodes to events
+#trap "throw EXIT"    EXIT
+#trap "throw SIGINT"  SIGINT
+#trap "throw SIGTERM" SIGTERM
+
+# -- redis-client
+#
+#  returns an array
+#
+# Args:
+# value -- file descriptor
+# value -- message to be sent (only read if blank)
+#
+function redis-client() {
+    FD=${1}
+    shift;
+    if [ ${#} -ne 0 ]; then # always use unified protocol and let the server validate the number of parameters
+        local ARRAY=( "${@}" )
+        local CMD=("*$[${#ARRAY[@]}]")
+        local i=0
+        for ((i=0;i<${#ARRAY[@]};i++)); do
+            CMD=( "${CMD[@]}" "\$${#ARRAY[${i}]}" "${ARRAY[${i}]}" )
+        done
+        printf "%s\r\n" "${CMD[@]}" >&${FD}
+    fi
+    local ARGV
+    read -r -u ${FD}
+    REPLY=${REPLY:0:${#REPLY}-1}
+    case ${REPLY} in
+        -*|\$-*) # error message
+            echo "${REPLY:1}"
+            return 1;;
+        \$*) # message size
+            [ ${BASH_VERSINFO} -eq 3 ] && SIZEDELIM="n"
+            [ ${REPLY:1} -gt 0 ] && read -r -${SIZEDELIM:-N} $[${REPLY:1}+2] -u ${FD} # read again to get the value itself
+            ARGV=( "${REPLY:0:$[${#REPLY}-$[${BASH_VERSINFO}-2]]}" );;
+        :*) # integer message
+            ARGV=( "${REPLY:1}" );;
+        \**) # bulk reply - recursive based on number of messages
+            unset ARGV
+            for ((ARGC="${REPLY:1}";${ARGC}>0;ARGC--)); do
+                ARGV=("${ARGV[@]}" $(redis-client ${FD}))
+            done;;
+        +*) # standard message
+            ARGV=( "${REPLY:1}" );;
+        *) # wtf? just in case...
+            ARGV=( "${ARGV[@]}" "${REPLY}" );;
+    esac
+    printf "%s\n" "${ARGV[@]}"
+}
+
+send(){
+  (( VERBOSE > 0 )) && echo "connecting to $REDISHOST port $REDISPORT"
+  if [ "${REDISHOST}" != "" ] && [ "${REDISPORT}" != "" ]
+  then
+      exec 6<>/dev/tcp/${REDISHOST}/${REDISPORT} # open fd
+      if [ $? -ne 0 ]; then
+          exit 1
+      fi
+  else
+      echo "Wrong arguments"
+      exit 255
+  fi
+  [ "${AUTH}" != "" ] && redis-client 6 AUTH ${AUTH} > /dev/null
+  [ "${REDISDB}" != "" ] && redis-client 6 SELECT ${REDISDB} > /dev/null
+  for ((z=1;z<=${REPEAT};z++))
+  do
+      redis-client 6 "${REDISCMD}" "$@" 
+      if [ $? -ne 0 ]; then
+          exit 1
+      fi
+      [ ${DELAY} -gt 0 ] && sleep ${DELAY}
+  done
+  exec 6>&- #close fd
+}
+
+listen(){
+  echo "connecting to $REDISHOST port $REDISPORT"
+  while true
+  do
+      exec 5>&-
+      if [ "${REDISHOST}" != "" ] && [ "${REDISPORT}" != "" ]
+      then
+          exec 5<>/dev/tcp/${REDISHOST}/${REDISPORT} # open fd
+      else
+          echo "Wrong arguments"
+          exit 255
+      fi
+      [[ "${AUTH}" != "" ]] && out="$(redis-client 5 AUTH ${AUTH})";
+      [[ ! "$out" =~ "OK" ]] && echo "[!] could not authenticate to redis server"
+      for channel in "${LISTENERS[@]}"; do
+        echo "subscribing to channel '$channel'"
+        redis-client 5 SUBSCRIBE "$channel" > /dev/null # subscribe to the pubsub channel in fd 5
+      done
+      while true
+      do
+          unset ARGV
+          OFS=${IFS};IFS=$'\n' # split the return correctly
+          ARGV=($(redis-client 5))
+          IFS=${OFS}
+          if [[ "${ARGV[0]}" = "message" ]]; then
+            onMessage "${ARGV[1]}" "${ARGV[2]}"
+          elif [ -z ${ARGV} ]
+          then
+              sleep 1; break;
+          fi
+      done
+  done
+}
+
+onMessage(){
+  printf "  -> message from: %-40s = %s\n" "$1" "${2:0:20}.."
+  hooks=(hooks/$1/*)
+  ( for hook in "${hooks[@]}"; do $hook "$2" ; done & ) | while read line; do echo "    -> $line"; done
+}
+
+# source: https://gist.github.com/coderofsalvation/8270452
+# look for a value in an array, returns 0 on success, 1 otherwise
+
+in_array()
+{   
+    [ -z "$1" ] && return 1
+    if [ -n "$BASH" ]; then
+        _inarray_var_needle="$1"
+        shift
+        for element
+        do
+            [ X"$element" != X"$_inarray_var_needle" ] || return 0
+        done
+    fi
+    return 1
+}
+
+listchannels(){
+  cat channels.json | tail -n+2 | head -n+2 > "$TMPFILE"
+  while read line; do 
+    channel="${line//:*/}"; channel="${channel//\"/}"
+    CHANNELS+=("$channel")
+  done < "$TMPFILE"
+}
+
+listhooks(){
+  find hooks -type f > "$TMPFILE"
+  echo "current listeners: "
+  while read line; do 
+    channel="${line/hooks\/}"; channel="$(dirname "$channel")"; hook="$(basename "$channel")"
+    printf "  %-40s -> $hook\n" "$channel"
+    _channelexist "$channel" && LISTENERS+=("$channel") || { echo "  ^---- ERROR: this channel does not exist, please check channels.json "; exit 0; }
+  done < "$TMPFILE"
+}
+
+_channelexist(){
+  in_array "$1" "${CHANNELS[@]}" && return 0 || return 1
+}
+
+
+init(){
+  listchannels &> /dev/null
+  listhooks    &> /dev/null    
+  addListener CHANNEL_MESSAGE onMessage
+}
+
+init && $ACTION "$@"

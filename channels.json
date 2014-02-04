@@ -1,0 +1,4 @@
+{
+  "foo/bar":   "trigger when system foo 'bar'-event happens"
+  "bar/foo":   "trigger when system foo 'bar'-event happens"
+}

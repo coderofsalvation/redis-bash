@@ -1,124 +1,80 @@
-# REDIS-BASH - Bash library to access Redis Databases
-* The library comes with two examples, one generic client and a pubsub demo.
-* This library has no external dependencies, using only bash built-in commands.
-* The only requirement is bash to have net redirections enabled.
-* The command validation is made by the server.
-
-## Using the client and the pubsub demo
-
-### Client
-	redis-bash-cli <PARAMETERS> <COMMAND> <ARGUMENTS>
-
-Parameters:
-
-	-h Host - Defaults localhost.
-	-p Port - Defaults 6379.
-	-n DB - Select the database DB.
-	-r N - Repeat command N times.
-    -a PASSWORD - Authentication password
-    -i INTERVAL - Interval between commands
-	
-Examples:
-
-	redis-bash-cli -h localhost SET testkey 1234
-	OK
-	
-	redis-bash-cli -h localhost GET testkey
-	1234
-
-	redis-bash-cli -h localhost PING
-	PONG
-	
-	redis-bash-cli -h localhost -r 5 PING
-	PONG
-	PONG
-	PONG
-	PONG
-	PONG
-	
-	redis-bash-cli -h localhost WRONGCOMMAND test
-	ERR unknown command 'WRONGCOMMAND'
-
-Authenticated requests:
-
-    redis-bash-cli -h localhost PING
-    ERR operation not permitted
-
-    redis-bash-cli -h localhost -a test PING
-    PONG
-
-### Pubsub
-
-	redis-pubsub-test <PARAMETERS> <CHANNEL>
-	
-Parameters:
-
-	-h Host - Defaults localhost.
-	-p Port - Defaults 6379.
-	CHANNEL - Channel to subscribe
-		
-## Pubsub demo
-In one shell run the command:
-
-	redis-pubsub-test test
-
-In another shell run the command:
-
-	redis-bash-cli -h localhost -p 6379 PUBLISH test "Hello World."
-	
-# Using the Library in your code
-The library have a single function to handle the redis communication.
-
-	redis-client <FD> <COMMAND>
-
-* FD: file descriptor to access the redis database
-* COMMAND: command to be sent to the server, can be blank to do read operation.
-
-Using the library:
-
-	#!/bin/bash
-	source redis-bash-lib # include the library
-	exec 6<>/dev/tcp/localhost/6379 # open the connection
-	redis-client 6 SET test 1234 # do a SET operation
-	exec 6>&- # close the connection
+REDIS-BASH
+==========
+Singlefile Bash clientscript to access Redis, and 'init.d'-style channel-hooks   
 
 
-# TODO
-* manual page
-* tests
-* documentation
+### What
 
-# LICENSE
-* BSD
+This is a singleshellscript which can write/get values to redis, as well as listening on channels.
+Channelmessages will be automatically trigger scripts (if file ispresent in 'hooks' directory structure).
+Perfect to use as a bash eventhandler on several servers, without having to need to install redis itself.. 
 
-# Debian Package
-* To build the debian/ubuntu package use dpkg-buildpackage.
+### Howto
 
-# CONTACT
-* email: cassianoaquino at me.com
-* twitter: @djserdan
+A picture speaks a thousand words, and a bash command speaks a thousand pictures:
 
-# THANKS
+    $ ./redis
+
+    Usage: ./redis <listen|send> [REDISCMD] [topic] [message]
+
+      options:
+        -h Host - Defaults localhost.
+        -p Port - Defaults 6379.
+        -n DB - Select the database DB.
+        -r N - Repeat command N times.
+        -c CHANNELS - commaseperated list of channels to listen to
+        -a PASSWORD - Authentication password
+        -i INTERVAL - Interval between commands
+        -v verbose - verbose level (1=more, 2=mostest, 3=mosdef, handy for debugging)
+
+      NOTE: the 'hook' directory contains all channels which are being listened to, scripts in 
+            these directory will automatically be triggered.
+
+      Examples: 
+          ./redis listen -h localhost -p 6379 
+          ./redis listen -h foo.com   -p 6379 -a mypassword           
+          ./redis send   -h foo.com   -p 6379 -a mypassword PUBLISH foo/bar 'this is a message'         
+          ./redis send   -h foo.com   -p 6379 -a mypassword -v 1 PUBLISH foo/bar 'this is a message'         
+          ./redis send   -h foo.com   -p 6379 -a mypassword SET     "Foo Users" 3
+ 
+### Test output
+
+Terminal #1:
+
+    $ ./redis listen -a mypassword
+    connecting to localhost port 6379
+    subscribing to channel 'foo/bar'
+    subscribing to channel 'bar/foo'
+    (..waiting..)
+
+Terminal #2:
+    $ ./redis send -p 6379 -a mypassword SET foo bar
+    OK
+    $ ./redis send -p 6379 -a mypassword GET foo bar
+    bar
+    $ ./redis send -p 6379 -a mypassword PUBLISH foo/bar "hi all"
+    1
+    $
+
+Terminal #1 now outputs:
+
+    -> message from: foo/bar                                  = this is a message..
+       -> hooks/foo/bar/triggertest: Hi I just received 'this is a message'
+
+### The jsonfiles
+
+The jsonfiles are there to define the existing keys and channels.
+The bashscript will check the hooks directory for scripts which listen to nonexisting channels or keys.
+Also, it is handy to share json-files with other developers/partners e.g. as a (online) resource for developing.
+(You could share the repo, and let others add channels to the json as the application grows, and allow others readonly-access
+by symbolically liking the jsonfile to a webdirectory e.g.).
+
+### Requirements 
+
+* Only needed is bash4 with /dev/tcp compiled (almost always), therefore it is highly portable.
+
+
+### Credits
 * Andre Ferraz - Debian Package
 * Juliano Martinez - Idea to handle socket disconnections on the pubsub demo
 
-# TESTED
-* Debian squeeze 6.0.X - GNU bash, version 4.1.5(1)-release (x86_64-pc-linux-gnu) 
-* Mac OS X Lion 10.7.X - GNU bash, version 3.2.48(1)-release (x86_64-apple-darwin11)
-
-# PERFORMANCE
-
-This test has no intent to be a complete benchmark, but only to show the diference between both clients.
-
-
-    time redis-bash-cli -h 192.168.86.1 -r 10 PING > /dev/null
-
-    real0m0.027s
-    user0m0.000s
-    sys0m0.024s
-
-    time redis-cli -h 192.168.86.1 -r 10 PING > /dev/null
-
-    real0m0.012s
-    user0m0.000s
-    sys0m0.008s
