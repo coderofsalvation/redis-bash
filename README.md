@@ -22,7 +22,6 @@ A picture speaks a thousand words, and a bash command speaks a thousand pictures
         -p Port - Defaults 6379.
         -n DB - Select the database DB.
         -r N - Repeat command N times.
-        -c CHANNELS - commaseperated list of channels to listen to
         -a PASSWORD - Authentication password
         -i INTERVAL - Interval between commands
         -v verbose - verbose level (1=more, 2=mostest, 3=mosdef, handy for debugging)
