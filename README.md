@@ -13,9 +13,9 @@ Perfect to use as a bash eventhandler on several servers, without having to need
 
 A picture speaks a thousand words, and a bash command speaks a thousand pictures:
 
-    $ ./redis
+    $ ./redis-bash
 
-    Usage: ./redis <listen|send> [REDISCMD] [topic] [message]
+    Usage: ./redis-bash <listen|send> [REDISCMD] [topic] [message]
 
       options:
         -h Host - Defaults localhost.
@@ -31,28 +31,28 @@ A picture speaks a thousand words, and a bash command speaks a thousand pictures
             these directory will automatically be triggered.
 
       Examples: 
-          ./redis listen -h localhost -p 6379 
-          ./redis listen -h foo.com   -p 6379 -a mypassword           
-          ./redis send   -h foo.com   -p 6379 -a mypassword PUBLISH foo/bar 'this is a message'         
-          ./redis send   -h foo.com   -p 6379 -a mypassword -v 1 PUBLISH foo/bar 'this is a message'         
-          ./redis send   -h foo.com   -p 6379 -a mypassword SET     "Foo Users" 3
+          ./redis-bash listen -h localhost -p 6379 
+          ./redis-bash listen -h foo.com   -p 6379 -a mypassword           
+          ./redis-bash send   -h foo.com   -p 6379 -a mypassword PUBLISH foo/bar 'this is a message'         
+          ./redis-bash send   -h foo.com   -p 6379 -a mypassword -v 1 PUBLISH foo/bar 'this is a message'         
+          ./redis-bash send   -h foo.com   -p 6379 -a mypassword SET     "Foo Users" 3
  
 ### Test output
 
 Terminal #1:
 
-    $ ./redis listen -a mypassword
+    $ ./redis-bash listen -a mypassword
     connecting to localhost port 6379
     subscribing to channel 'foo/bar'
     subscribing to channel 'bar/foo'
     (..waiting..)
 
 Terminal #2:
-    $ ./redis send -p 6379 -a mypassword SET foo bar
+    $ ./redis-bash send -p 6379 -a mypassword SET foo bar
     OK
-    $ ./redis send -p 6379 -a mypassword GET foo bar
+    $ ./redis-bash send -p 6379 -a mypassword GET foo bar
     bar
-    $ ./redis send -p 6379 -a mypassword PUBLISH foo/bar "hi all"
+    $ ./redis-bash send -p 6379 -a mypassword PUBLISH foo/bar "hi all"
     1
     $
 
