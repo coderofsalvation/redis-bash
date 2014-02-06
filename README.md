@@ -47,6 +47,7 @@ Terminal #1:
     (..waiting..)
 
 Terminal #2:
+
     $ ./redis-bash send -p 6379 -a mypassword SET foo bar
     OK
     $ ./redis-bash send -p 6379 -a mypassword GET foo bar
