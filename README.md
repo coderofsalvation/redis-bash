@@ -52,7 +52,7 @@ Terminal #2:
     OK
     $ ./redis-bash send -p 6379 -a mypassword GET foo
     bar
-    $ ./redis-bash send -p 6379 -a mypassword PUBLISH foo/bar "hi all"
+    $ ./redis-bash send -p 6379 -a mypassword PUBLISH foo/bar "this is a message"
     1
     $
 
